@@ -1,175 +1,127 @@
 require('dotenv').config();
 const express = require('express');
-const crypto  = require('crypto');
-const fs      = require('fs');
-const path    = require('path');
+const crypto = require('crypto');
 
-const app    = express();
-const port   = process.env.PORT   || 3000;
-const secret = process.env.WEBHOOK_SECRET;
+const {
+  handleTaskCreated,
+  handleTaskUpdated,
+  handleTaskCompleted,
+  handleTaskDeleted
+} = require('./controllers/tasks');
 
-const MORGEN_API  = 'https://api.morgen.so/v3';
-const MORGEN_KEY  = process.env.MORGEN_API_KEY;
-const ACCOUNT_ID  = process.env.MORGEN_ACCOUNT_ID;
-const CALENDAR_ID = process.env.MORGEN_CALENDAR_ID;
-const TN_API      = process.env.TASKNOTES_API_URL || 'http://localhost:8080';
+const {
+  handleTimeStarted,
+  handleTimeStopped
+} = require('./controllers/time');
 
-// --- Store: taskPath → morgenTaskId ---
-const STORE_FILE = path.join(__dirname, 'morgen-ids.json');
+// 1. Initialization & Env Check
+const requiredEnv = [
+  'WEBHOOK_SECRET',
+  'MORGEN_API_KEY',
+  'MORGEN_ACCOUNT_ID',
+  'MORGEN_CALENDAR_ID',
+  'TIMEZONE'
+];
 
-function loadStore() {
-  try { return JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')); }
-  catch { return {}; }
-}
-
-function saveStore(store) {
-  fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2));
-}
-
-const idStore = loadStore();
-
-// --- Morgen API helper ---
-async function morgenRequest(endpoint, body) {
-  const res = await fetch(`${MORGEN_API}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `ApiKey ${MORGEN_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`Morgen ${endpoint} failed: ${JSON.stringify(data)}`);
-  return data;
-}
-
-// --- Handlers ---
-
-async function handleTaskCreated(task) {
-  console.log(`[task.created] "${task.title}"`);
-
-  const taskKey = task.path;
-  const due = task.scheduled ? `${task.scheduled}T00:00:00` : null;
-
-  const result = await morgenRequest('/tasks/create', {
-    title: task.title,
-    ...(due && { due }),
-    ...(task.priority === 'high' && { priority: 1 }),
-  });
-
-  const morgenId = result?.data?.task?.id ?? result?.data?.id;
-  if (!morgenId) {
-    console.warn('[task.created] Morgen не повернув id, пропускаємо');
-    return;
-  }
-
-  idStore[taskKey] = morgenId;
-  saveStore(idStore);
-  console.log(`[task.created] Збережено morgen_id=${morgenId} для ${taskKey}`);
-
-  try {
-    const tnRes = await fetch(
-        `${TN_API}/api/tasks/${encodeURIComponent(taskKey)}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ morgen_id: morgenId }),
-        }
-    );
-    if (tnRes.ok) console.log('[task.created] morgen_id записано в TaskNotes');
-    else console.warn('[task.created] TaskNotes відповів:', tnRes.status);
-  } catch (e) {
-    console.warn('[task.created] Не вдалося записати в TaskNotes:', e.message);
-  }
-}
-
-async function handleTaskCompleted(task) {
-  console.log(`[task.completed] "${task.title}"`);
-
-  const morgenId = idStore[task.path] ?? task.morgen_id;
-  if (!morgenId) {
-    console.warn(`[task.completed] morgen_id не знайдено для ${task.path}`);
-    return;
-  }
-
-  await morgenRequest('/tasks/close', { id: morgenId });
-  console.log(`[task.completed] Закрито в Morgen: ${morgenId}`);
-}
-
-async function handlePomodoroCompleted(session, task) {
-  console.log(`[pomodoro.completed] "${task.title}", ${session.plannedDuration} хв`);
-
-  const startTime = d.toISOString().slice(0, 19);
-  const duration  = `PT${session.plannedDuration}M`;
-
-  await morgenRequest('/events/create', {
-    accountId:   ACCOUNT_ID,
-    calendarId:  CALENDAR_ID,
-    title:       `🍅 ${task.title}`,
-    start:       startTime,
-    duration,
-    showWithoutTime: false,
-    timeZone:        'Europe/Warsaw',
-    description: 'Pomodoro сесія з Obsidian TaskNotes',
-  });
-
-  console.log(`[pomodoro.completed] Подію створено: ${startTime} (${duration})`);
-}
-
-// --- Middleware ---
-
-if (!secret) {
-  console.error('WEBHOOK_SECRET не визначено');
+const missingEnv = requiredEnv.filter(key => !process.env[key]);
+if (missingEnv.length > 0) {
+  console.error(`[ERR] Missing required environment variables: ${missingEnv.join(', ')}`);
   process.exit(1);
 }
 
-app.use(express.json());
+const PORT = process.env.PORT || 3000;
 
+// 2. Express App Setup
+const app = express();
+
+// A. JSON parser with rawBody capture — uses the 'verify' option to get the buffer
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  }
+}));
+
+// C. Global logger
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  if (req.url !== '/webhook') {
+    console.log(`[REQ] ${req.method} ${req.url}`);
+  }
   next();
 });
 
-// --- Webhook route ---
-
-app.post('/webhook', async (req, res) => {
-  const signature = req.get('X-TaskNotes-Signature');
-
-  if (!signature) return res.status(401).send('Missing signature');
-
-  const expected = crypto
-      .createHmac('sha256', secret)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-
-  if (signature !== expected) {
-    console.warn('Invalid signature');
-    return res.status(401).send('Invalid signature');
+// 3. Signature Verification Middleware
+function verifySignature(req, res, next) {
+  const signature = req.headers['x-tasknotes-signature'];
+  if (!signature) {
+    console.warn('[WARN] Missing X-TaskNotes-Signature header');
+    return res.status(401).send('Unauthorized');
   }
 
+  const expected = crypto
+    .createHmac('sha256', process.env.WEBHOOK_SECRET)
+    .update(req.rawBody || Buffer.alloc(0))
+    .digest('hex');
+
+  const actual = signature || '';
+
+  try {
+    const expectedBuf = Buffer.from(expected);
+    const actualBuf = Buffer.from(actual);
+    
+    if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
+      console.warn(`[WARN] Invalid signature. Expected length: ${expectedBuf.length}, Actual length: ${actualBuf.length}`);
+      return res.status(401).send('Unauthorized');
+    }
+  } catch (err) {
+    console.warn('[WARN] Signature verification error:', err.message);
+    return res.status(401).send('Unauthorized');
+  }
+
+  next();
+}
+
+// 4. Webhook Dispatcher
+let processingQueue = Promise.resolve();
+
+app.post('/webhook', verifySignature, (req, res) => {
+  // Respond 200 OK immediately as per GEMINI.md rule 1
   res.status(200).send('OK');
 
   const { event, data } = req.body;
 
-  try {
-    switch (event) {
-      case 'task.created':
-        await handleTaskCreated(data.task);
-        break;
-      case 'task.completed':
-        await handleTaskCompleted(data.task);
-        break;
-      case 'pomodoro.completed':
-        await handlePomodoroCompleted(data.session, data.task);
-        break;
-      default:
-        console.log(`[${event}] подія отримана, обробник не визначено`);
+  // Process body asynchronously through a sequential queue to prevent storage race conditions
+  processingQueue = processingQueue.then(async () => {
+    try {
+      console.log(`[EVENT] ${event}`);
+      switch (event) {
+        case 'task.created':
+          await handleTaskCreated(data);
+          break;
+        case 'task.updated':
+          await handleTaskUpdated(data);
+          break;
+        case 'task.completed':
+          await handleTaskCompleted(data);
+          break;
+        case 'task.deleted':
+          await handleTaskDeleted(data);
+          break;
+        case 'time.started':
+          await handleTimeStarted(data);
+          break;
+        case 'time.stopped':
+          await handleTimeStopped(data);
+          break;
+        default:
+          console.log(`[DEBUG] Unhandled event type: ${event}`);
+      }
+    } catch (err) {
+      console.error(`[ERR] Error processing event ${event}: ${err.message}`);
     }
-  } catch (err) {
-    console.error(`[${event}] Помилка:`, err.message);
-  }
+  });
 });
 
-app.listen(port, () => {
-  console.log(`Server listening at http://localhost:${port}`);
+// 5. Server Lifecycle
+app.listen(PORT, () => {
+  console.log(`[INFO] Server listening on port ${PORT}`);
 });
