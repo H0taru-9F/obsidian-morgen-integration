@@ -42,7 +42,7 @@ async function handleTimeStopped(data) {
   if (!session || Object.keys(session).length === 0) {
     if (data.task) {
       session = {
-        taskTitle: data.task.title,
+        taskTitle: data.task.title || 'Work session',
         taskPath: data.task.path,
         startTime: data.session?.startTime
       };
@@ -58,7 +58,8 @@ async function handleTimeStopped(data) {
     return;
   }
 
-  const durationMins = calculateActiveDuration(activePeriods);
+  const rawDurationMins = calculateActiveDuration(activePeriods);
+  const durationMins = Number.isFinite(rawDurationMins) ? Math.max(1, rawDurationMins) : 1;
   const start = convertUtcToLocalMorgenFormat(activePeriods[0].startTime);
   const duration = formatMorgenDuration(durationMins);
 
@@ -72,15 +73,16 @@ async function handleTimeStopped(data) {
     timeZone: process.env.TIMEZONE
   };
 
-  const result = await morgenRequest('POST', '/events/create', payload);
-
-  if (result) {
-    const eventId = result.event?.id || result.data?.id || result.id;
-    console.log(`[TIME] Morgen event created: ${eventId || 'OK'}`);
-  }
-
-  // Cleanup session
-  writeJsonAtomic(ACTIVE_SESSION_FILE, {});
+    try {
+       const result = await morgenRequest('POST', '/events/create', payload);
+        if (result) {
+           const eventId = result.event?.id || result.data?.id || result.id;
+            console.log(`[TIME] Morgen event created: ${eventId || 'OK'}`);
+        }
+     } finally {
+       // Cleanup session regardless of API success/failure
+        writeJsonAtomic(ACTIVE_SESSION_FILE, {});
+      }
 }
 
 module.exports = {

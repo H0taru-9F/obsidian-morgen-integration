@@ -10,14 +10,14 @@ You are orchestrating testing of task **{{task_id}}**.
 2. Read `.gemini/docs/designs/{{task_id}}-summary.md`
    If not found: STOP.
    Tell the developer: "Implementation summary for {{task_id}} not found. Run /implement {{task_id}} first."
-3. Read `.gemini/workflows/testing.md` — that playbook is the source of truth for the phase sequence
+3. Read `.gemini/workflow/testing.md` — that playbook is the source of truth for the phase sequence.
 
 ## Step 1 — Execute phases from `testing.md`
 
 Follow the playbook strictly. For each phase:
-1. Load the named agent
-2. Collect the artifact produced
-3. Present the gate text exactly as specified in the playbook
+1. Load the named agent (e.g., test-engineer, debug-engineer).
+2. Collect the artifact produced (e.g., `tests/{{task_id}}.test.js` or `{{task_id}}-debug-report.md`).
+3. Present the gate text exactly as specified in the playbook.
 4. WAIT for developer response:
     - **CONTINUE** → proceed to next phase
     - **FEEDBACK <text>** → re-run current phase with the feedback
@@ -27,13 +27,13 @@ Follow the playbook strictly. For each phase:
 
 After all phases complete:
 - Test summary saved to `.gemini/docs/designs/{{task_id}}-test-summary.md`
-- All manual test steps confirmed
-- Documentation updated
+- Ensure all automated Jest integration tests passed.
+- Documentation updated.
 
 ## Rules
-- Never auto-chain phases
-- If tests fail: dispatch to debug-engineer before continuing
-- Never modify `index.js` logic during testing — that goes back to /implement
+- Never auto-chain phases. Always stop at gates.
+- If tests fail (debug-engineer reports errors): DO NOT CONTINUE. Present the debug report to the developer and wait for FEEDBACK or STOP.
+- Never modify `index.js` or application logic during testing — fixing code goes back to the /implement workflow.
 """
 
 [[arguments]]
