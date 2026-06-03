@@ -21,13 +21,31 @@ function mapProgress(status) {
   return 'needs-action';
 }
 
-// Helper to diff tasks (minimal for now, will be refined in Task 05)
+// Helper to diff tasks (Task 05)
 function getTaskDiff(task, previous) {
+  const prev = previous || {};
   const diff = {};
-  if (task.title !== previous.title) diff.title = task.title;
-  if (task.scheduled !== previous.scheduled) diff.due = task.scheduled;
-  if (task.priority !== previous.priority) diff.priority = mapPriority(task.priority);
-  if (task.status !== previous.status) diff.progress = mapProgress(task.status);
+
+  if (task.title !== prev.title) diff.title = task.title;
+
+  const currentDue = normalizeTaskDue(task.scheduled);
+  const prevDue = normalizeTaskDue(prev.scheduled);
+  if (currentDue !== prevDue) {
+    diff.due = currentDue; // Works for null to clear date too
+  }
+
+  const currentPriority = mapPriority(task.priority);
+  const prevPriority = mapPriority(prev.priority);
+  if (currentPriority !== prevPriority) {
+    diff.priority = currentPriority;
+  }
+
+  const currentProgress = mapProgress(task.status);
+  const prevProgress = mapProgress(prev.status);
+  if (currentProgress !== prevProgress) {
+    diff.progress = currentProgress;
+  }
+
   return Object.keys(diff).length > 0 ? diff : null;
 }
 
@@ -56,57 +74,67 @@ async function handleTaskCreated(data) {
 async function handleTaskUpdated(data) {
   const { task, previous } = data;
   const idStore = readJsonSafe(MORGEN_IDS_FILE);
-  let morgenId = idStore[task.path];
+  const isRename = previous && task.path !== previous.path;
 
-  // 1. Check for Rename
-  if (task.path !== previous.path) {
-    morgenId = idStore[previous.path];
-    if (morgenId) {
-      console.log(`[RENAME] ${previous.path} -> ${task.path}`);
-      // idStore[task.path] = morgenId;
-      // delete idStore[previous.path];
-      // writeJsonAtomic(MORGEN_IDS_FILE, idStore);
-      // defer local rename persistence until Morgen update succeeds
-    }
-  }
+  // 1. Resolve Morgen ID
+  let morgenId = isRename ? idStore[previous.path] : idStore[task.path];
 
-  // 2. Recover from payload if still missing (legacy support)
+  // 1b. Self-healing: try to recover ID from payload if missing from store
   if (!morgenId && task.morgen_id) {
     morgenId = task.morgen_id;
-    // idStore[task.path] = morgenId;
-    // writeJsonAtomic(MORGEN_IDS_FILE, idStore);
-    // defer persistence until successful API response
   }
 
-  // 3. Check for Field Changes
-  const diff = getTaskDiff(task, previous);
-  if (diff) {
-    if (!morgenId) {
-      console.warn(`[WARN] No morgenId found for update: ${task.path}`);
-      return;
-    }
-
-    const updatePayload = {
-      id: morgenId,
-      ...diff
+  // 2. Fallback: Create Mode (if still no ID)
+  if (!morgenId) {
+    console.log(`[TASKS] Self-healing: Creating missing task for ${task.path}`);
+    const due = normalizeTaskDue(task.scheduled);
+    const createPayload = {
+      title: task.title,
+      ...(task.details && { description: task.details }),
+      ...(due && { due }),
+      priority: mapPriority(task.priority),
+      progress: mapProgress(task.status),
     };
 
-    if (diff.due) {
-      updatePayload.due = normalizeTaskDue(diff.due);
+    const response = await morgenRequest('POST', '/tasks/create', createPayload);
+    if (response && response.data && response.data.id) {
+      idStore[task.path] = response.data.id;
+      writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+      console.log(`[TASKS] Self-healing success: ${response.data.id}`);
     }
+    return;
+  }
 
-    await morgenRequest('POST', '/tasks/update', updatePayload);
+  // 3. Update Mode
+  const diff = getTaskDiff(task, previous);
 
-      // persist only after successful API call
-        if (task.path !== previous.path && idStore[previous.path]) {
-          idStore[task.path] = idStore[previous.path];
-          delete idStore[previous.path];
-          writeJsonAtomic(MORGEN_IDS_FILE, idStore);
-        } else if (!idStore[task.path] && task.morgen_id) {
-          idStore[task.path] = task.morgen_id;
-          writeJsonAtomic(MORGEN_IDS_FILE, idStore);
-        }
+  // If rename happened but no fields in diff, we still need to process the rename locally.
+  // We send the update to Morgen anyway (it might update the title if filename changed).
+  if (diff || isRename) {
+    const updatePayload = {
+      id: morgenId,
+      ...(diff || {})
+    };
 
+    const response = await morgenRequest('POST', '/tasks/update', updatePayload);
+    if (response) {
+      // 4. Persistence (Order of Operations)
+      let storeUpdated = false;
+      if (isRename) {
+        idStore[task.path] = morgenId;
+        delete idStore[previous.path];
+        storeUpdated = true;
+      } else if (!idStore[task.path] && task.morgen_id) {
+        idStore[task.path] = task.morgen_id;
+        storeUpdated = true;
+      }
+
+      if (storeUpdated) {
+        writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+        console.log(`[TASKS] Local store updated for ${task.path}`);
+      }
+      console.log(`[TASKS] Synced update for ${morgenId}`);
+    }
   }
 }
 
@@ -115,9 +143,11 @@ async function handleTaskCompleted(data) {
   const idStore = readJsonSafe(MORGEN_IDS_FILE);
   const morgenId = idStore[task.path];
 
-  if (!morgenId) {
-    console.warn(`[WARN] Task not found in store, skipping completion: ${task.path}`);
-    return;
+  if (morgenId) {
+    const response = await morgenRequest('POST', '/tasks/close', { id: morgenId });
+    if (response !== null) {
+      console.log(`[TASKS] Completed Morgen task: ${morgenId}`);
+    }
   }
 
   await morgenRequest('POST', '/tasks/close', { id: morgenId });
