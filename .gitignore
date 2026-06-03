@@ -1,0 +1,7 @@
+/package-lock.json
+/.env
+/.env.example
+/.archive/
+/node_modules/
+/.idea/
+/.archive/
