@@ -14,7 +14,7 @@ function writeJsonAtomic(filePath, data) {
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
     fs.renameSync(tmp, filePath);
   } catch (err) {
-    try { fs.unlinkSync(tmp); } catch {}
+    try { fs.unlinkSync(tmp); } catch { /* ignore cleanup error */ }
     throw err;
   }
 }
