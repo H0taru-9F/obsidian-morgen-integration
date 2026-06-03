@@ -122,6 +122,10 @@ app.post('/webhook', verifySignature, (req, res) => {
 });
 
 // 5. Server Lifecycle
-app.listen(PORT, () => {
-  console.log(`[INFO] Server listening on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`[INFO] Server listening on port ${PORT}`);
+  });
+}
+
+module.exports = app;
