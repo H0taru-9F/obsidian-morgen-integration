@@ -116,8 +116,10 @@ async function handleTaskCompleted(data) {
   const morgenId = idStore[task.path];
 
   if (morgenId) {
-    await morgenRequest('POST', '/tasks/close', { id: morgenId });
-    console.log(`[TASKS] Completed Morgen task: ${morgenId}`);
+    const response = await morgenRequest('POST', '/tasks/close', { id: morgenId });
+    if (response !== null) {
+      console.log(`[TASKS] Completed Morgen task: ${morgenId}`);
+    }
   }
 }
 
