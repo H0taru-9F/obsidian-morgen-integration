@@ -63,17 +63,19 @@ async function handleTaskUpdated(data) {
     morgenId = idStore[previous.path];
     if (morgenId) {
       console.log(`[RENAME] ${previous.path} -> ${task.path}`);
-      idStore[task.path] = morgenId;
-      delete idStore[previous.path];
-      writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+      // idStore[task.path] = morgenId;
+      // delete idStore[previous.path];
+      // writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+      // defer local rename persistence until Morgen update succeeds
     }
   }
 
   // 2. Recover from payload if still missing (legacy support)
   if (!morgenId && task.morgen_id) {
     morgenId = task.morgen_id;
-    idStore[task.path] = morgenId;
-    writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+    // idStore[task.path] = morgenId;
+    // writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+    // defer persistence until successful API response
   }
 
   // 3. Check for Field Changes
@@ -94,6 +96,17 @@ async function handleTaskUpdated(data) {
     }
 
     await morgenRequest('POST', '/tasks/update', updatePayload);
+
+      // persist only after successful API call
+        if (task.path !== previous.path && idStore[previous.path]) {
+          idStore[task.path] = idStore[previous.path];
+          delete idStore[previous.path];
+          writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+        } else if (!idStore[task.path] && task.morgen_id) {
+          idStore[task.path] = task.morgen_id;
+          writeJsonAtomic(MORGEN_IDS_FILE, idStore);
+        }
+
   }
 }
 

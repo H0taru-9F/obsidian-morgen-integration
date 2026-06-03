@@ -85,9 +85,11 @@ Reply CONTINUE, FEEDBACK <text>, or STOP.
 - `GEMINI.md` (architectural rules)
 
 **Outputs**:
-- Modified `index.js`
+- Modified `controllers/*.js` for feature logic (as applicable)
+- Modified `utils/*.js` for shared logic (as applicable)
+- Modified `index.js` only for server wiring/middleware/router mounting (if needed)
 - Updated `morgen-ids.json` schema (if applicable)
-- `node --check index.js` passes
+- `node --check` passes for all changed `.js` files
 - Implementation summary saved to `.gemini/docs/designs/<task-id>-summary.md`
 
 **Summary format**:
@@ -121,7 +123,7 @@ New handlers: <list>
 node --check: ✅
 Summary saved to: .gemini/docs/designs/<task-id>-summary.md
 Implementation complete. Run /test <task-id> when ready to test.
-Reply CONTINUE to confirm or FEEDBACK <text> to iterate.
+Reply CONTINUE to confirm, FEEDBACK <text> to iterate, or STOP to halt.
 
 ---
 

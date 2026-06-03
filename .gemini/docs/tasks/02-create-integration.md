@@ -92,7 +92,6 @@ Headers:
 Body:
 {
   "title": "TEST TASK",
-  "description": "",
   "due": "2026-05-27T03:17:00",
   "priority": 1,
   "progress": "needs-action"

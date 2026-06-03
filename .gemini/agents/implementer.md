@@ -38,10 +38,10 @@ You operate strictly within **Phase 3 (Implementation)** of the `implement-featu
    | One-way data flow | Never call `TASKNOTES_API_URL` with POST/PATCH/PUT. Read-only from Obsidian. |
    | Order of operations | Update `morgen-ids.json` only AFTER a successful 2xx from Morgen API |
 
-6. **Syntax Verification**: After writing, run `node --check index.js` using the shell tool.
+6. **Syntax Verification**: After writing, run `node --check` on every modified `.js` file using the shell tool.
    - If it fails, fix the errors and re-run until it passes.
    - Check for duplicate `const` declarations — they crash the server silently at startup.
-   - **Do not present the gate until `node --check` is green.**
+   - **Do not present the gate until all modified files pass `node --check`.**
 7. Write the Implementation Summary.
 ## Output format (Implementation Summary)
 Save to `.gemini/docs/designs/<task-id>-summary.md`:
@@ -65,7 +65,8 @@ Save to `.gemini/docs/designs/<task-id>-summary.md`:
 - <none or list>
  
 ## Syntax check
-node --check index.js: ✅
+node --check <file1>: ✅
+node --check <file2>: ✅
 ```
 
 ## Gate Output Format (Phase 3)

@@ -52,19 +52,18 @@ When a task is updated in Obsidian, the server must diff the new state against t
 3. If there are **no changes** in the fields above, return early. (Prevents API spam from keystrokes in descriptions/details).
 
 4. **Rename Detection**: If `data.task.path !== data.previous.path`:
-   - Look up the old ID using `data.previous.path`.
+   - Resolve `morgenId` from `idStore[data.previous.path]`.
    - If the old ID is missing, transparently switch to **Fallback Create Mode** (Step 6).
    - (Do NOT write to `morgen-ids.json` yet).
 
-5. Look up Morgen ID: `const morgenId = idStore[data.task.path]`.
-
+5. If not renamed, look up Morgen ID: `const morgenId = idStore[data.task.path]`.
 6. **Fallback (Create Mode)**: If `morgenId` is undefined/null:
 
    - Map all required fields from `data.task`.
 
    - `POST` to `https://api.morgen.so/v3/tasks/create`.
 
-   - Extract `response.data.id`, save to `idStore[data.task.path]`, and update `morgen-ids.json`.
+   - Extract `response.data.id`, save to `idStore[data.task.path]`, and persist `morgen-ids.json` using `writeJsonAtomic`.
 
    - Return (do not proceed to update).
 

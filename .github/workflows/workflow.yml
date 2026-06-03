@@ -1,0 +1,39 @@
+name: workflow.yml
+on:
+push:
+  branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+build-and-test:
+  # На якому сервері запускати (стандартний безкоштовний Linux)
+  runs-on: ubuntu-latest
+
+  steps:
+    # 1. Завантажуємо код твого репозиторію
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. Встановлюємо Node.js
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm' # Автоматично кешує залежності для швидкості
+
+    # 3. Встановлюємо залежності (clean install)
+    - name: Install dependencies
+      run: npm ci
+
+    # 4. Перевіряємо типи TypeScript (без генерації файлів)
+    - name: Type Check
+      run: npx tsc --noEmit
+
+    # 5. Запускаємо лінтер
+    - name: Linting
+      run: npm run lint
+
+    # 6. Перевіряємо, чи збирається проект
+#    - name: Build project
+#      run: npm run build
