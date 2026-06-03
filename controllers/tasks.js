@@ -115,10 +115,13 @@ async function handleTaskCompleted(data) {
   const idStore = readJsonSafe(MORGEN_IDS_FILE);
   const morgenId = idStore[task.path];
 
-  if (morgenId) {
-    await morgenRequest('POST', '/tasks/close', { id: morgenId });
-    console.log(`[TASKS] Completed Morgen task: ${morgenId}`);
+  if (!morgenId) {
+    console.warn(`[WARN] Task not found in store, skipping completion: ${task.path}`);
+    return;
   }
+
+  await morgenRequest('POST', '/tasks/close', { id: morgenId });
+  console.log(`[TASKS] Completed Morgen task: ${morgenId}`);
 }
 
 async function handleTaskDeleted(data) {
@@ -126,8 +129,14 @@ async function handleTaskDeleted(data) {
   const idStore = readJsonSafe(MORGEN_IDS_FILE);
   const morgenId = idStore[task.path];
 
-  if (morgenId) {
-    await morgenRequest('POST', '/tasks/close', { id: morgenId });
+  if (!morgenId) {
+    console.warn(`[WARN] Task not found in store, skipping deletion: ${task.path}`);
+    return;
+  }
+
+  const response = await morgenRequest('POST', '/tasks/delete', { id: morgenId });
+  
+  if (response) {
     delete idStore[task.path];
     writeJsonAtomic(MORGEN_IDS_FILE, idStore);
     console.log(`[TASKS] Deleted Morgen task: ${morgenId}`);
