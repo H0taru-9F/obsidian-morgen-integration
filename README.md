@@ -84,3 +84,80 @@ Handles task deletion in Obsidian. It identifies the corresponding Morgen task v
 - **Task path not in store**: Logs a warning and returns early without making an API call.
 - **Morgen API failure**: If the deletion request fails, the local mapping is retained to prevent desynchronization (Rule 5).
 - **Immediate Response**: Sends a `200 OK` to TaskNotes before executing the deletion logic (Rule 1).
+
+### 05-update-integration — Task Update
+
+**Webhook event**: `task.updated`
+**Controller**: `controllers/tasks.js`
+
+#### What it does
+Syncs changes made to tasks in Obsidian to Morgen. It uses field-level diffing to avoid unnecessary API calls and supports "self-healing" by creating the task in Morgen if the local mapping is missing but the task exists in Obsidian.
+
+#### Data flow
+| Obsidian field | Morgen field | Notes |
+|----------------|--------------|-------|
+| `task.title` | `title` | — |
+| `task.details` | `description` | — |
+| `task.scheduled` | `due` | Normalized |
+| `task.priority` | `priority` | Mapped to Morgen integers |
+| `task.status` | `progress` | Mapped to `needs-action` or `completed` |
+
+#### Storage
+- **Reads**: `morgen-ids.json` — Looks up Morgen ID.
+- **Writes**: `morgen-ids.json` — Updates path mapping if the task is renamed or newly created.
+
+#### Edge cases handled
+- **Rename detection**: Updates the key in `morgen-ids.json` when a task's path changes.
+- **No changes**: Returns early if none of the tracked fields have changed.
+- **Missing Task**: Automatically creates the task in Morgen if it can't find a mapping (self-healing).
+
+### 06-start-time-integration — Start Pomodoro Session
+
+**Webhook event**: `time.started`
+**Controller**: `controllers/time.js`
+
+#### What it does
+Triggers when a Pomodoro session starts in Obsidian. It records the session context (task title, path, and start time) in a local `active-session.json` file. This data is used later by the `time.stopped` handler to create a calendar event.
+
+#### Data flow
+| Obsidian field | Session field | Notes |
+|----------------|---------------|-------|
+| `data.task.path` | `taskPath` | Default `""` |
+| `data.task.title` | `taskTitle` | Default `"Unknown task"` |
+| `data.session.startTime` | `startTime` | Required |
+
+#### Storage
+- **Writes**: `active-session.json` — Stores the current session metadata atomically.
+
+#### Edge cases handled
+- **Missing task data**: Uses "Unknown task" as title if the task object is missing from the payload.
+- **Missing startTime**: Logs a warning and aborts processing if no start time is provided.
+- **Signature verification**: Uses the robust `express.json({ verify })` pattern to capture the raw request body for HMAC verification.
+
+#### Out of scope
+- Calling the Morgen API (this handler only records local state).
+
+### 07-stop-time-integration — Stop Pomodoro Session
+
+**Webhook event**: `time.stopped`
+**Controller**: `controllers/time.js`
+
+#### What it does
+Triggers when a Pomodoro session ends. It calculates the total active duration, creates a calendar event in Morgen prefixed with "🍅", and clears the local session tracking file.
+
+#### Data flow
+| Obsidian field | Morgen field | Notes |
+|----------------|--------------|-------|
+| `data.task.title` | `title` | Prefixed with "🍅 " |
+| `data.session.startTime` | `start` | Normalized to Morgen local format |
+| calculated duration | `duration` | ISO 8601 format (`PTnM`), minimum 1 minute |
+
+#### Storage
+- **Reads**: `active-session.json` — Retrieves the active session context.
+- **Writes**: `active-session.json` — Clears the session file (sets to `{}`) after completion.
+
+#### Edge cases handled
+- **Missing Session File**: Returns early if no active session is found.
+- **No Active Periods**: Falls back to total session duration (endTime - startTime).
+- **Short Sessions**: Minimum 1-minute duration enforced.
+- **API Failure**: Session file is cleared even if the Morgen API call fails.

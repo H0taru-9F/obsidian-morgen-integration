@@ -5,25 +5,9 @@ const { morgenRequest } = require('../utils/api');
 
 const ACTIVE_SESSION_FILE = path.join(__dirname, '..', 'active-session.json');
 
-// Helper to calculate duration in minutes from activePeriods
-function calculateActiveDuration(periods) {
-  let totalMs = 0;
-  periods.forEach(p => {
-    if (p.startTime && p.endTime) {
-      totalMs += (new Date(p.endTime) - new Date(p.startTime));
-    }
-  });
-  return Math.round(totalMs / 60000);
-}
-
-// Helper to format duration for Morgen (e.g. "PT30M")
-function formatMorgenDuration(mins) {
-  return `PT${mins}M`;
-}
-
 async function handleTimeStarted(data) {
-  const taskPath = data.task?.path || null;
-  const taskTitle = data.task?.title || "Work session";
+  const taskPath = data.task?.path || "";
+  const taskTitle = data.task?.title || "Unknown task";
   const startTime = data.session?.startTime;
 
   if (!startTime) {
@@ -37,52 +21,53 @@ async function handleTimeStarted(data) {
 }
 
 async function handleTimeStopped(data) {
-  let session = readJsonSafe(ACTIVE_SESSION_FILE);
+  const session = readJsonSafe(ACTIVE_SESSION_FILE);
   
   if (!session || Object.keys(session).length === 0) {
-    if (data.task) {
-      session = {
-        taskTitle: data.task.title || 'Work session',
-        taskPath: data.task.path,
-        startTime: data.session?.startTime
-      };
-    } else {
-      console.warn('[TIME] No active session found and no task in payload. Aborting.');
-      return;
-    }
-  }
-
-  const activePeriods = data.session?.activePeriods;
-  if (!activePeriods || activePeriods.length === 0) {
-    console.warn('[TIME] No active periods in session. Aborting.');
+    console.log('[TIME] Session was never started (active-session.json empty).');
     return;
   }
 
-  const rawDurationMins = calculateActiveDuration(activePeriods);
-  const durationMins = Number.isFinite(rawDurationMins) ? Math.max(1, rawDurationMins) : 1;
-  const start = convertUtcToLocalMorgenFormat(activePeriods[0].startTime);
-  const duration = formatMorgenDuration(durationMins);
+  const taskTitle = session.taskTitle || data.task?.title || 'Work session';
+  
+  let totalMs = 0;
+  const activePeriods = data.session?.activePeriods;
+  if (Array.isArray(activePeriods) && activePeriods.length > 0) {
+    activePeriods.forEach(p => {
+      if (p.startTime && p.endTime) {
+        totalMs += (new Date(p.endTime) - new Date(p.startTime));
+      }
+    });
+  } else if (data.session?.startTime && data.session?.endTime) {
+    totalMs = new Date(data.session.endTime) - new Date(data.session.startTime);
+  }
+
+  const durationMins = Math.max(1, Math.round(totalMs / 60000));
+  const durationString = `PT${durationMins}M`;
+  const startLocal = convertUtcToLocalMorgenFormat(data.session?.startTime || session.startTime);
 
   const payload = {
     accountId: process.env.MORGEN_ACCOUNT_ID,
     calendarId: process.env.MORGEN_CALENDAR_ID,
-    title: `🍅 ${session.taskTitle}`,
-    start,
-    duration,
+    title: `🍅 ${taskTitle}`,
+    start: startLocal,
+    duration: durationString,
     showWithoutTime: false,
     timeZone: process.env.TIMEZONE
   };
 
-    try {
-       const result = await morgenRequest('POST', '/events/create', payload);
-        if (result) {
-           const eventId = result.event?.id || result.data?.id || result.id;
-            console.log(`[TIME] Morgen event created: ${eventId || 'OK'}`);
-        }
-     } finally {
-       // Cleanup session regardless of API success/failure
-        writeJsonAtomic(ACTIVE_SESSION_FILE, {});
-      }
+  try {
+    const result = await morgenRequest('POST', '/events/create', payload);
+    if (result) {
+      const eventId = result.event?.id || result.data?.id || result.id;
+      console.log(`[TIME] Morgen event created: ${eventId || 'OK'}`);
+    }
+  } catch (err) {
+    console.error('[TIME] Failed to create Morgen event:', err.message);
+  } finally {
+    writeJsonAtomic(ACTIVE_SESSION_FILE, {});
+    console.log('[TIME] Session stopped and cleared.');
+  }
 }
 
 module.exports = {
