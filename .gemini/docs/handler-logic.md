@@ -4,6 +4,14 @@
 Handles `task.created`. Maps Obsidian task data (title, details, scheduled, priority, status) to Morgen API format and creates the task.
 Called from: `index.js` (webhook dispatcher)
 
+## `handleTaskCompleted` (`controllers/tasks.js`)
+Handles `task.completed`. Retrieves the Morgen ID from the store and closes the task in Morgen. Logs a warning if the mapping is missing.
+Called from: `index.js` (webhook dispatcher)
+
+## `handleTaskDeleted` (`controllers/tasks.js`)
+Handles `task.deleted`. Deletes the task in Morgen and removes the local mapping from the store upon success. Logs a warning if the mapping is missing.
+Called from: `index.js` (webhook dispatcher)
+
 ## `readJsonSafe` (`utils/store.js`)
 Securely reads a JSON file. Returns an empty object `{}` if the file does not exist or is malformed.
 Called from: `controllers/tasks.js`, `controllers/time.js`
