@@ -48,3 +48,39 @@ Triggers when a new task is created in Obsidian. It maps Obsidian's task fields 
 
 #### Out of scope
 - Task updates, deletions, or completion (handled in subsequent tasks).
+
+### 03-complete-integration — Task Completion
+
+**Webhook event**: `task.completed`
+**Controller**: `controllers/tasks.js`
+
+#### What it does
+Triggers when a task is marked as completed in Obsidian. It retrieves the corresponding Morgen task ID from the local mapping store and closes the task in Morgen via the `/tasks/close` endpoint.
+
+#### Storage
+- **Reads**: `morgen-ids.json` — Looks up the `morgenId` using `task.path`.
+- **Writes**: None (mappings are preserved).
+
+#### Edge cases handled
+- **Task path not in store**: Logs a warning and returns early without calling Morgen.
+- **Immediate Response**: Sends a `200 OK` to TaskNotes before executing the API call to Morgen.
+
+#### Out of scope
+- Removing the mapping from `morgen-ids.json` (mappings are retained to support potential un-completion or reference).
+
+### 04-delete-integration — Task Deletion
+
+**Webhook event**: `task.deleted`
+**Controller**: `controllers/tasks.js`
+
+#### What it does
+Handles task deletion in Obsidian. It identifies the corresponding Morgen task via the local mapping store, deletes it in Morgen, and removes the local mapping only after a successful API confirmation.
+
+#### Storage
+- **Reads**: `morgen-ids.json` — Retrieves the `morgenId` associated with `task.path`.
+- **Writes**: `morgen-ids.json` — Removes the mapping entry after successful deletion in Morgen.
+
+#### Edge cases handled
+- **Task path not in store**: Logs a warning and returns early without making an API call.
+- **Morgen API failure**: If the deletion request fails, the local mapping is retained to prevent desynchronization (Rule 5).
+- **Immediate Response**: Sends a `200 OK` to TaskNotes before executing the deletion logic (Rule 1).
