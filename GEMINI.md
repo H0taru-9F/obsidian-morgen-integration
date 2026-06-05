@@ -67,13 +67,13 @@ const sig = crypto.createHmac('sha256', process.env.WEBHOOK_SECRET)
 // const sig = crypto.createHmac('sha256', secret).update(JSON.stringify(req.body)).digest('hex');
 ```
 
-The `req.rawBody` buffer MUST be captured in `index.js` via an Express middleware placed before `express.json()`:
+The `req.rawBody` buffer MUST be captured in `index.js` via the `verify` option in `express.json()` to avoid double-consuming the request stream:
 ```js
-app.use((req, _res, next) => {
-  let data = [];
-  req.on('data', chunk => data.push(chunk));
-  req.on('end', () => { req.rawBody = Buffer.concat(data); next(); });
-});
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 ```
 
 ### 3. Task Identification

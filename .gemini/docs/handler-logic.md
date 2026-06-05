@@ -12,6 +12,18 @@ Called from: `index.js` (webhook dispatcher)
 Handles `task.deleted`. Deletes the task in Morgen and removes the local mapping from the store upon success. Logs a warning if the mapping is missing.
 Called from: `index.js` (webhook dispatcher)
 
+## `handleTaskUpdated` (`controllers/tasks.js`)
+Handles `task.updated`. Performs field-level diffing to prevent redundant API calls. Supports task renaming and self-healing (creating the task in Morgen if it was missing).
+Called from: `index.js` (webhook dispatcher)
+
+## `handleTimeStarted` (`controllers/time.js`)
+Handles `time.started`. Persists the active session (task title, path, and start time) to `active-session.json` using atomic writes. Handles missing task data with "Unknown task" placeholders.
+Called from: `index.js` (webhook dispatcher)
+
+## `handleTimeStopped` (`controllers/time.js`)
+Handles `time.stopped`. Calculates total duration, creates a "🍅" event in Morgen, and clears the active session.
+Called from: `index.js` (webhook dispatcher)
+
 ## `readJsonSafe` (`utils/store.js`)
 Securely reads a JSON file. Returns an empty object `{}` if the file does not exist or is malformed.
 Called from: `controllers/tasks.js`, `controllers/time.js`

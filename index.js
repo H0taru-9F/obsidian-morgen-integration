@@ -34,14 +34,14 @@ const PORT = process.env.PORT || 3000;
 // 2. Express App Setup
 const app = express();
 
-// A. JSON parser with rawBody capture — uses the 'verify' option to get the buffer
+// A. JSON parser with rawBody capture — captured during parsing to prevent stream consumption issues
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;
   }
 }));
 
-// C. Global logger
+// B. Global logger
 app.use((req, res, next) => {
   if (req.url !== '/webhook') {
     console.log(`[REQ] ${req.method} ${req.url}`);
